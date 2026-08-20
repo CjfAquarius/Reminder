@@ -31,7 +31,7 @@ jobs:
         # 隐藏 CMD 黑框
         windows-console-mode: disable
         include-package-data: 'plyer'
-        enable-plugin: 'tk-inter'
+        enable-plugins: 'tk-inter'
         lto: 'yes'
 
     - name: Upload Artifact
