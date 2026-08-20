@@ -32,7 +32,7 @@ jobs:
         windows-console-mode: disable
         include-package-data: 'plyer'
         enable-plugin: 'tk-inter'
-        Ito: true
+        lto: true
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
