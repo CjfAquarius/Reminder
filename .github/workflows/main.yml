@@ -36,4 +36,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Scheduler_Installer
-        path: ./main.dist/main.exe
+        path: ./build/main.exe
