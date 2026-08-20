@@ -72,55 +72,51 @@ jobs:
         $scriptBase = [System.IO.Path]::GetFileNameWithoutExtension("${{ github.event.inputs.script_name }}")
         echo "脚本基础名: $scriptBase"
         echo "script_base=$scriptBase" >> $env:GITHUB_OUTPUT
-
+    
         # 构建 Nuitka 命令
         $cmd = "python -m nuitka"
-
+    
         # 构建模式：--onefile 或 --standalone
         if ("${{ github.event.inputs.build_mode }}" -eq "onefile") {
             $cmd += " --onefile"
         } else {
             $cmd += " --standalone"
         }
-
+    
         # 启用插件（如果有）
         $plugins = "${{ github.event.inputs.enable_plugins }}"
         if ($plugins -ne "") {
-            # 支持逗号分隔的多个插件
             $pluginList = $plugins -split ","
             foreach ($plugin in $pluginList) {
                 $cmd += " --enable-plugin=$plugin"
             }
         }
-
+    
         # 输出目录
         $cmd += " --output-dir=dist"
-
-        # 包含包数据
-        $cmd += " --include-package-data"
-
+    
         # 额外的用户参数
         $extra = "${{ github.event.inputs.extra_options }}"
         if ($extra -ne "") {
             $cmd += " $extra"
         }
-
+    
         # 最后加上脚本名
         $cmd += " ${{ github.event.inputs.script_name }}"
-
+    
         # 打印最终命令（方便调试）
         Write-Host "执行命令: $cmd"
         Write-Host "================================"
-
+    
         # 执行命令
         Invoke-Expression $cmd
-
+    
         # 检查构建结果
         if ($LASTEXITCODE -ne 0) {
             Write-Host "构建失败！"
             exit $LASTEXITCODE
         }
-
+    
         Write-Host "构建成功！"
 
     - name: Debug - List generated files (on failure)
