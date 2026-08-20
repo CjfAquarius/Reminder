@@ -34,7 +34,7 @@ on:
         default: ''
         type: string
       extra_options:
-        description: '额外的 Nuitka 参数 (如: --windows-console-mode=disable)'
+        description: '额外的 Nuitka 参数 (如: --windows-console-mode=disable --windows-icon-from-ico=icon.ico)'
         required: false
         default: ''
         type: string
@@ -61,50 +61,80 @@ jobs:
         if (Test-Path "requirements.txt") {
             pip install -r requirements.txt
         }
-        # 如果有额外依赖可以在这里安装
-        # pip install pillow pyside6
+        # 安装 Nuitka（如果需要最新版可以指定版本或分支）
+        pip install nuitka
+        # 如果需要最新开发版：pip install https://github.com/Nuitka/Nuitka/archive/develop.zip
 
-    - name: Build with Nuitka
+    - name: Build with Nuitka (Manual Command)
       id: build
-      uses: Nuitka/Nuitka-Action@main
-      with:
-        nuitka-version: main
-        script-name: ${{ github.event.inputs.script_name }}
-        mode: ${{ github.event.inputs.build_mode }}
-        # 启用插件（如果有）
-        enable-plugins: ${{ github.event.inputs.enable_plugins }}
-        # 包含包数据（很多库需要，如 pillow、pygame）
-        include-package-data: true
-        # 输出目录统一到 dist，方便收集
-        output-dir: dist
-        # 额外参数透传（例如禁用控制台、设定图标等）
-        args: ${{ github.event.inputs.extra_options }}
-
-    # 重要：获取生成的可执行文件的实际名称（不含扩展名）
-    - name: Get executable name
-      id: get_exe
-      shell: pwsh
       run: |
+        # 获取脚本基础名（不含扩展名）
         $scriptBase = [System.IO.Path]::GetFileNameWithoutExtension("${{ github.event.inputs.script_name }}")
-        echo "exe_base=$scriptBase" >> $env:GITHUB_OUTPUT
-        echo "可执行文件基础名: $scriptBase"
+        echo "脚本基础名: $scriptBase"
+        echo "script_base=$scriptBase" >> $env:GITHUB_OUTPUT
 
-    - name: Debug - Show build directory (on failure)
+        # 构建 Nuitka 命令
+        $cmd = "python -m nuitka"
+
+        # 构建模式：--onefile 或 --standalone
+        if ("${{ github.event.inputs.build_mode }}" -eq "onefile") {
+            $cmd += " --onefile"
+        } else {
+            $cmd += " --standalone"
+        }
+
+        # 启用插件（如果有）
+        $plugins = "${{ github.event.inputs.enable_plugins }}"
+        if ($plugins -ne "") {
+            # 支持逗号分隔的多个插件
+            $pluginList = $plugins -split ","
+            foreach ($plugin in $pluginList) {
+                $cmd += " --enable-plugin=$plugin"
+            }
+        }
+
+        # 输出目录
+        $cmd += " --output-dir=dist"
+
+        # 包含包数据
+        $cmd += " --include-package-data"
+
+        # 额外的用户参数
+        $extra = "${{ github.event.inputs.extra_options }}"
+        if ($extra -ne "") {
+            $cmd += " $extra"
+        }
+
+        # 最后加上脚本名
+        $cmd += " ${{ github.event.inputs.script_name }}"
+
+        # 打印最终命令（方便调试）
+        Write-Host "执行命令: $cmd"
+        Write-Host "================================"
+
+        # 执行命令
+        Invoke-Expression $cmd
+
+        # 检查构建结果
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "构建失败！"
+            exit $LASTEXITCODE
+        }
+
+        Write-Host "构建成功！"
+
+    - name: Debug - List generated files (on failure)
       if: failure()
       run: |
-        Write-Host "=== Build directory tree ==="
-        Get-ChildItem -Recurse build/ | Select-Object FullName
-        Write-Host "=== Dist directory tree ==="
-        Get-ChildItem -Recurse dist/ | Select-Object FullName
-        Write-Host "=== Searching for executables ==="
-        Get-ChildItem -Recurse -Include @("*.exe", "*.bin", "*.app", "*.so") | Select-Object FullName
+        Write-Host "=== 当前目录结构 ==="
+        Get-ChildItem -Recurse | Select-Object FullName, Length
+        Write-Host "=== 搜索可执行文件 ==="
+        Get-ChildItem -Recurse -Include @("*.exe", "*.bin", "*.app", "*.so", "*.dylib") | Select-Object FullName
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Build-${{ github.event.inputs.os_selector }}-${{ github.event.inputs.build_mode }}
-        # 根据实际平台和模式智能匹配文件
         path: |
           dist/
-          !dist/**/*.py  # 排除源码（如果不想上传）
         if-no-files-found: error
