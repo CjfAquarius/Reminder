@@ -78,7 +78,7 @@ jobs:
         # 输出目录统一到 dist，方便收集
         output-dir: dist
         # 额外参数透传（例如禁用控制台、设定图标等）
-        args: ${{ github.event.inputs.extra_options }}
+        nuitka-args: ${{ github.event.inputs.extra_options }}
 
     # 重要：获取生成的可执行文件的实际名称（不含扩展名）
     - name: Get executable name
