@@ -1,0 +1,87 @@
+name: Nuitka Build from Python
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      script_name:
+        description: '入口脚本文件名 (例如: main.py, app.py)'
+        required: true
+        default: 'main.py'
+        type: string
+      os_selector:
+        description: '选择构建操作系统'
+        required: true
+        default: 'windows-latest'
+        type: choice
+        options:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+      build_mode:
+        description: 'Nuitka 构建模式'
+        required: true
+        default: 'onefile'
+        type: choice
+        options:
+          - onefile
+          - standalone
+
+jobs:
+  build:
+    runs-on: ${{ github.event.inputs.os_selector }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # 下面是标准的 PowerShell 语法，使用圆括号 ()
+        if (Test-Path "requirements.txt") {
+            pip install -r requirements.txt
+        }
+      shell: pwsh
+
+    - name: Build with Nuitka
+      # 将 action 固定到特定 tag，且通过单一的 mode 输入传递构建模式，避免同时生成 --mode= 与过时的 --onefile/--standalone 标志
+      uses: Nuitka/Nuitka-Action@main
+      with:
+        nuitka-version: main
+        script-name: ${{ github.event.inputs.script_name }}
+        mode: ${{ github.event.inputs.build_mode }}
+        # 可选：如果你希望统一输出到 dist 目录，可以添加以下参数（视 Action 版本支持情况而定）
+        # output-dir: dist
+
+    - name: Debug - List Files (Optional)
+      # 如果上传失败，开启这个步骤可以看到文件到底生成了哪里
+      if: failure()
+      run: |
+        Get-ChildItem -Recurse -Filter "*.exe" | Select-Object FullName
+        Get-ChildItem -Recurse -Filter "*.bin" | Select-Object FullName
+        Get-ChildItem -Recurse -Filter "main" | Select-Object FullName
+      shell: pwsh
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Build-${{ github.event.inputs.os_selector }}-${{ github.event.inputs.build_mode }}
+        # 扩大搜索范围，确保能捕获到生成的文件
+        path: |
+          dist/**/*
+          build/**/*
+          *.exe
+          *.bin
+          main
+        if-no-files-found: error # 如果没有找到文件，直接报错，方便调试
