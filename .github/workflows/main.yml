@@ -27,7 +27,7 @@ jobs:
         nuitka-version: '4.1.3'
         script-name: main.pyw
         # 输出单个 EXE
-        onefile: true
+        mode: onefile
         # 隐藏 CMD 黑框
         windows-console-mode: disable
         include-package-data: 'plyer'
