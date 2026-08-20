@@ -28,6 +28,16 @@ on:
         options:
           - onefile
           - standalone
+      enable_plugins:
+        description: '启用的插件 (逗号分隔, 如: pyside6,tk-inter)'
+        required: false
+        default: ''
+        type: string
+      extra_options:
+        description: '额外的 Nuitka 参数 (如: --windows-console-mode=disable)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build:
@@ -48,40 +58,53 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # 下面是标准的 PowerShell 语法，使用圆括号 ()
         if (Test-Path "requirements.txt") {
             pip install -r requirements.txt
         }
-      shell: pwsh
+        # 如果有额外依赖可以在这里安装
+        # pip install pillow pyside6
 
     - name: Build with Nuitka
-      # 将 action 固定到特定 tag，且通过单一的 mode 输入传递构建模式，避免同时生成 --mode= 与过时的 --onefile/--standalone 标志
+      id: build
       uses: Nuitka/Nuitka-Action@main
       with:
         nuitka-version: main
         script-name: ${{ github.event.inputs.script_name }}
         mode: ${{ github.event.inputs.build_mode }}
-        # 可选：如果你希望统一输出到 dist 目录，可以添加以下参数（视 Action 版本支持情况而定）
-        # output-dir: dist
+        # 启用插件（如果有）
+        enable-plugins: ${{ github.event.inputs.enable_plugins }}
+        # 包含包数据（很多库需要，如 pillow、pygame）
+        include-package-data: true
+        # 输出目录统一到 dist，方便收集
+        output-dir: dist
+        # 额外参数透传（例如禁用控制台、设定图标等）
+        extra-args: ${{ github.event.inputs.extra_options }}
 
-    - name: Debug - List Files (Optional)
-      # 如果上传失败，开启这个步骤可以看到文件到底生成了哪里
+    # 重要：获取生成的可执行文件的实际名称（不含扩展名）
+    - name: Get executable name
+      id: get_exe
+      shell: pwsh
+      run: |
+        $scriptBase = [System.IO.Path]::GetFileNameWithoutExtension("${{ github.event.inputs.script_name }}")
+        echo "exe_base=$scriptBase" >> $env:GITHUB_OUTPUT
+        echo "可执行文件基础名: $scriptBase"
+
+    - name: Debug - Show build directory (on failure)
       if: failure()
       run: |
-        Get-ChildItem -Recurse -Filter "*.exe" | Select-Object FullName
-        Get-ChildItem -Recurse -Filter "*.bin" | Select-Object FullName
-        Get-ChildItem -Recurse -Filter "main" | Select-Object FullName
-      shell: pwsh
+        Write-Host "=== Build directory tree ==="
+        Get-ChildItem -Recurse build/ | Select-Object FullName
+        Write-Host "=== Dist directory tree ==="
+        Get-ChildItem -Recurse dist/ | Select-Object FullName
+        Write-Host "=== Searching for executables ==="
+        Get-ChildItem -Recurse -Include @("*.exe", "*.bin", "*.app", "*.so") | Select-Object FullName
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Build-${{ github.event.inputs.os_selector }}-${{ github.event.inputs.build_mode }}
-        # 扩大搜索范围，确保能捕获到生成的文件
+        # 根据实际平台和模式智能匹配文件
         path: |
-          dist/**/*
-          build/**/*
-          *.exe
-          *.bin
-          main
-        if-no-files-found: error # 如果没有找到文件，直接报错，方便调试
+          dist/
+          !dist/**/*.py  # 排除源码（如果不想上传）
+        if-no-files-found: error
