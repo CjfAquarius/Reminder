@@ -1,4 +1,4 @@
-name: Build with Nuitka
+name: Build Plan Manager
 
 on:
   workflow_dispatch:  # 允许手动点按钮触发打包
@@ -21,7 +21,6 @@ jobs:
       run: |
         pip install nuitka
         pip install plyer
-        pip install pywin32  # Windows 通知需要
 
     - name: Cache Nuitka build artifacts
       uses: actions/cache@v4
