@@ -15,11 +15,26 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.13'
+        cache: 'pip'  # 缓存 pip 依赖
 
     - name: Install dependencies
       run: |
         pip install nuitka
         # 如果你用了其他包，也在这加上 pip install
+        # 例如：pip install plyer pillow
+
+    - name: Cache Nuitka build artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          ./build
+          ./dist
+          ~/.cache/nuitka
+          %LOCALAPPDATA%\nuitka
+          %TEMP%\nuitka
+        key: ${{ runner.os }}-nuitka-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-nuitka-
 
     - name: Nuitka Build (Onefile with attached exe)
       uses: Nuitka/Nuitka-Action@main
@@ -28,9 +43,12 @@ jobs:
         script-name: editor.py
         # 输出单个 EXE
         mode: onefile
+        optimize: 2
         # 隐藏 CMD 黑框
         windows-console-mode: force
         lto: 'yes'
+        # 禁用 Python 控制台（完全隐藏窗口）
+        # windows-uac-admin: true  # 如果需要管理员权限
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
