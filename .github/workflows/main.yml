@@ -40,7 +40,7 @@ jobs:
       uses: Nuitka/Nuitka-Action@main
       with:
         nuitka-version: '4.1.3'
-        script-name: main.py
+        script-name: main.pyw
         mode: onefile
         windows-console-mode: disable
         lto: 'yes'
