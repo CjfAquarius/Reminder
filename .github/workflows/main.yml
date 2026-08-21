@@ -47,8 +47,6 @@ jobs:
         enable-plugins: tk-inter
         # 包含 plyer 包及其所有子模块
         include-package: plyer
-        # 包含 pywin32（plyer 在 Windows 上的依赖）
-        include-package: win32com,win32gui,win32api
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
