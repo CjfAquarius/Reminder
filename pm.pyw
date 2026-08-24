@@ -1,454 +1,636 @@
-import tkinter as tk  # 导入tkinter，用于创建图形界面
-import time  # 导入time，用于获取当前时间
-import pickle  # 导入pickle，用于序列化/反序列化数据（保存和加载计划）
-from datetime import datetime  # 导入datetime，用于处理日期和时间
-from plyer import notification  # 导入plyer，用于发送系统通知（Windows右下角弹窗）
+import tkinter as tk
+import time
+import pickle
+from datetime import datetime
+from plyer import notification
+import urllib.request
+import urllib.error
+import json
+import os
+import sys
+import subprocess
+import tempfile
+import threading
+from tkinter import messagebox, ttk
 
-DATA_FILE = "scheduler.dat"  # 定义存储计划数据的文件名
+DATA_FILE = "scheduler.dat"
+VERSION_FILE = "version.txt"  # Version information file
+# Update related constants
+REPO_OWNER = "CjfAquarius"
+REPO_NAME = "Reminder"
+GITHUB_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
+EXE_NAME = "setup.exe"
+
+# GitHub acceleration site list (sorted by priority)
+ACCELERATORS = [
+    "https://ghproxy.net",
+    "https://github.moeyy.xyz",
+    "https://gh.llkk.cc",
+    "https://gh.con.sh",
+    "https://github.dog",
+]
 
 class FloatingWindow:
-    """浮动窗口类 - 在屏幕右上角显示一个半透明的悬浮窗"""
-    
     def __init__(self):
-        """初始化窗口，设置所有属性和组件"""
-        self.root = tk.Tk()  # 创建tkinter主窗口
+        self.root = tk.Tk()
         
-        # ============ 窗口尺寸设置 ============
-        # 面积约为原版的60%（宽高各乘以√0.6 ≈ 0.775）
-        self.width = 310   # 窗口宽度（原400 * 0.775）
-        self.height = 194  # 窗口高度（原250 * 0.775）
+        # ============ Window Size Settings ============
+        self.width = 310
+        self.height = 194
         
-        # ============ 窗口样式设置 ============
-        self.root.overrideredirect(True)  # 移除窗口标题栏、边框，创建无边框窗口
-        self.root.attributes("-topmost", True)  # 窗口置顶，始终显示在最前面
+        # ============ Window Style Settings ============
+        self.root.overrideredirect(True)
+        self.root.attributes("-topmost", True)
         
-        # ============ 透明度设置 ============
-        self.normal_alpha = 0.85  # 正常模式透明度（85%不透明）
-        self.idle_alpha = 0.3     # 空闲模式透明度（30%不透明，鼠标移出时）
-        self.hidden_alpha = 0.0   # 隐身模式透明度（完全透明）
-        self.root.attributes("-alpha", self.normal_alpha)  # 应用正常透明度
+        # ============ Transparency Settings ============
+        self.normal_alpha = 0.85
+        self.idle_alpha = 0.3
+        self.hidden_alpha = 0.0
+        self.root.attributes("-alpha", self.normal_alpha)
         
-        # ============ 窗口位置设置 ============
-        screen_width = self.root.winfo_screenwidth()   # 获取屏幕宽度
-        screen_height = self.root.winfo_screenheight() # 获取屏幕高度
-        x = screen_width - self.width - 50  # 计算X坐标：屏幕右边缘 - 窗口宽度 - 50px边距
-        y = screen_height - self.height - 100  # 计算Y坐标：屏幕底部 - 窗口高度 - 100px边距
-        self.root.geometry(f"{self.width}x{self.height}+{x}+{y}")  # 设置窗口位置
+        # ============ Window Position Settings ============
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = screen_width - self.width - 50
+        y = screen_height - self.height - 100
+        self.root.geometry(f"{self.width}x{self.height}+{x}+{y}")
         
-        # ============ 数据存储 ============
-        self.root.configure(bg="#1e3a8a")  # 设置背景色为深蓝色
-        self.schedule_data = [[], [], [], [], [], [], []]  # 7个列表，分别存储周一到周日的计划
-        self.task_queue = []  # 当前任务队列（今天的计划，按时间排序）
-        self.last_popped_task = None  # 记录最后一个完成的任务（用于调试）
-        self.carousel_index = 0  # 轮播当前索引（显示哪个任务）
-        self.is_hidden = False  # 窗口是否处于隐身模式（完全透明）
-        self.drag_data = {"x": 0, "y": 0}  # 拖拽数据，记录鼠标按下时的位置
+        # ============ Data Storage ============
+        self.root.configure(bg="#1e3a8a")
+        self.schedule_data = [[], [], [], [], [], [], []]
+        self.task_queue = []
+        self.last_popped_task = None
+        self.carousel_index = 0
+        self.is_hidden = False
+        self.drag_data = {"x": 0, "y": 0}
         
-        # ============ 计时器管理 ============
-        self._last_popup_time = 0  # 上次发送通知的时间，用于防止通知刷屏
-        self.display_list = []  # 当前显示的轮播列表（缓存）
-        self.carousel_running = False  # 轮播是否正在运行
-        self.carousel_after_id = None  # 轮播的定时器ID，用于取消
-        self.check_after_id = None  # 任务检查的定时器ID，用于取消
-        self.refreshing = False  # 是否正在刷新中（防止重复刷新）
+        # ============ Timer Management ============
+        self._last_popup_time = 0
+        self.display_list = []
+        self.carousel_running = False
+        self.carousel_after_id = None
+        self.check_after_id = None
+        self.refreshing = False
+        
+        # ============ Update Related ============
+        self.update_in_progress = False
+        self.current_version = self._read_version()  # Read version from version.txt
 
-        # ============ 初始化界面 ============
-        self.add_content()  # 添加所有UI组件
-        self.setup_dragging()  # 设置窗口拖拽功能
-        self.setup_alpha_switch()  # 设置鼠标悬停透明度切换
+        # ============ Initialize Interface ============
+        self.add_content()
+        self.setup_dragging()
+        self.setup_alpha_switch()
         
-        # ============ 加载数据并启动 ============
-        self.load_schedule()  # 从文件加载计划数据
-        self.update_time()  # 启动时间更新
-        self.start_check_task_status()  # 启动任务检查
+        # ============ Load Data and Start ============
+        self.load_schedule()
+        self.update_time()
+        self.start_check_task_status()
+
+    def _read_version(self):
+        """Read version number from version.txt, return default version if file doesn't exist"""
+        try:
+            if os.path.exists(VERSION_FILE):
+                with open(VERSION_FILE, 'r', encoding='utf-8') as f:
+                    version = f.read().strip()
+                    if version:
+                        return version
+        except Exception:
+            pass
+        return "1.0.0"  # Default version
+
+    def _get_accelerated_url(self, original_url):
+        """Convert GitHub download link to acceleration site link"""
+        for accelerator in ACCELERATORS:
+            # Try different acceleration site formats
+            # Format 1: https://acceleration-site/https://github.com/...
+            url1 = f"{accelerator}/{original_url}"
+            # Format 2: https://acceleration-site/github.com/... (some sites don't need https:// prefix)
+            if original_url.startswith("https://"):
+                url2 = f"{accelerator}/{original_url[8:]}"
+            else:
+                url2 = f"{accelerator}/{original_url}"
+            
+            # Return the first available acceleration site (simply returns here, will attempt connection in actual use)
+            # Prefer format 1
+            return url1
+        
+        return original_url  # Use original link if no acceleration site is available
+
+    def _download_with_accelerator(self, download_url, exe_path, timeout=60):
+        """Download file using acceleration site, try next site if failed"""
+        # Get the filename part of the original URL
+        file_name = download_url.split('/')[-1]
+        
+        # Build acceleration site URL list
+        accelerated_urls = []
+        for accelerator in ACCELERATORS:
+            # Try different formats
+            accelerated_urls.append(f"{accelerator}/{download_url}")
+            if download_url.startswith("https://"):
+                accelerated_urls.append(f"{accelerator}/{download_url[8:]}")
+        
+        # Try each acceleration site in order
+        for url in accelerated_urls:
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Accept": "*/*",
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "Connection": "keep-alive",
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    # Check response status
+                    if response.status == 200:
+                        with open(exe_path, 'wb') as f:
+                            f.write(response.read())
+                        return True, url  # Download successful
+            except Exception as e:
+                # Current acceleration site failed, try next one
+                continue
+        
+        # All acceleration sites failed, try downloading from original URL directly
+        try:
+            req = urllib.request.Request(
+                download_url,
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                if response.status == 200:
+                    with open(exe_path, 'wb') as f:
+                        f.write(response.read())
+                    return True, download_url
+        except Exception:
+            pass
+        
+        return False, None
 
     def load_schedule(self):
-        """从文件加载计划数据，并重置今天的任务队列"""
+        """Load schedule data from file and reset today's task queue"""
         try:
-            with open(DATA_FILE, "rb") as f:  # 以二进制读取模式打开
-                self.schedule_data = pickle.load(f)  # 反序列化加载数据
-        except Exception:  # 如果文件损坏或格式错误
-            self.schedule_data = [[], [], [], [], [], [], []]  # 重置为空数据
+            with open(DATA_FILE, "rb") as f:
+                self.schedule_data = pickle.load(f)
+        except Exception:
+            self.schedule_data = [[], [], [], [], [], [], []]
         
-        self.reset_today_queue()  # 重置今天的任务队列
-        self.reset_carousel()  # 重置轮播状态
+        self.reset_today_queue()
+        self.reset_carousel()
 
     def reset_carousel(self):
-        """重置轮播状态 - 停止轮播，清除缓存"""
-        # 取消正在运行的轮播定时器
+        """Reset carousel state"""
         if self.carousel_after_id:
-            self.root.after_cancel(self.carousel_after_id)  # 取消定时器
-            self.carousel_after_id = None  # 清空ID
+            self.root.after_cancel(self.carousel_after_id)
+            self.carousel_after_id = None
         
-        self.carousel_running = False  # 标记轮播已停止
-        self.carousel_index = 0  # 重置索引到0
-        self.display_list = []  # 清空显示列表缓存
+        self.carousel_running = False
+        self.carousel_index = 0
+        self.display_list = []
 
     def reset_today_queue(self):
-        """重置今天的任务队列 - 从schedule_data中提取今天的计划并排序"""
-        now = datetime.now()  # 获取当前时间
-        current_weekday = now.weekday()  # 获取今天是星期几（0=周一, 6=周日）
-        today_plans = self.schedule_data[current_weekday]  # 获取今天的计划列表
-        self.task_queue = sorted(today_plans, key=lambda x: x[0])  # 按时间排序（x[0]是时间）
-        self.last_popped_task = None  # 清空上一个完成的任务
+        """Reset today's task queue"""
+        now = datetime.now()
+        current_weekday = now.weekday()
+        today_plans = self.schedule_data[current_weekday]
+        self.task_queue = sorted(today_plans, key=lambda x: x[0])
+        self.last_popped_task = None
 
     def add_content(self):
-        """添加所有UI组件到窗口"""
-        
-        # ===== 左上角标题 =====
+        """Add all UI components to the window"""
+        # ===== Top-left Title =====
         self.title_label = tk.Label(
-            self.root,  # 父容器
-            text="Plan Manager",  # 显示文字
-            fg="#93c5fd",  # 前景色（浅蓝色）
-            bg="#1e3a8a",  # 背景色（深蓝色）
-            font=("Microsoft YaHei", 8)  # 字体和大小
+            self.root,
+            text="Plan Manager",
+            fg="#93c5fd",
+            bg="#1e3a8a",
+            font=("Microsoft YaHei", 8)
         )
-        self.title_label.place(x=12, y=8)  # 放置在左上角
+        self.title_label.place(x=12, y=8)
         
-        # ===== 休眠按钮（🌙） =====
+        # ===== Sleep Button (🌙) =====
         self.sleep_btn = tk.Label(
             self.root,
-            text="🌙",  # 月亮图标
+            text="🌙",
             bg="#1e3a8a",
             fg="white",
             font=("Arial", 11),
-            cursor="hand2"  # 鼠标悬停时变为手型
-        )
-        self.sleep_btn.place(x=self.width-32, y=6, width=22, height=22)  # 放在右上角
-        self.sleep_btn.bind("<Button-1>", self.go_to_sleep)  # 点击时调用go_to_sleep
-        
-        # ===== 刷新按钮（🔄） =====
-        self.refresh_btn = tk.Label(
-            self.root,
-            text="🔄",  # 刷新图标
-            bg="#1e3a8a",
-            fg="white",
-            font=("Arial", 10),
             cursor="hand2"
         )
-        self.refresh_btn.place(x=self.width-58, y=7, width=20, height=20)  # 放在休眠按钮左边
-        self.refresh_btn.bind("<Button-1>", self.refresh_schedule)  # 点击时刷新
+        self.sleep_btn.place(x=self.width-32, y=6, width=22, height=22)
+        self.sleep_btn.bind("<Button-1>", self.go_to_sleep)
         
-        # ===== 时间显示 =====
+        # ===== Refresh Button (🔄) =====
+        self.refresh_btn = tk.Label(
+            self.root,
+            text="🔄",
+            bg="#1e3a8a",
+            fg="white",
+            font=("Arial", 11),
+            cursor="hand2"
+        )
+        self.refresh_btn.place(x=self.width-58, y=7, width=20, height=20)
+        self.refresh_btn.bind("<Button-1>", self.refresh_schedule)
+        
+        # ===== Update Button (🆕) =====
+        self.update_btn = tk.Label(
+            self.root,
+            text="🆕",
+            bg="#1e3a8a",
+            fg="white",
+            font=("Arial", 11),
+            cursor="hand2"
+        )
+        self.update_btn.place(x=self.width-84, y=7, width=20, height=20)
+        self.update_btn.bind("<Button-1>", self.check_for_updates)
+        
+        # ===== Time Display =====
         self.time_label = tk.Label(
             self.root,
-            text="",  # 初始为空，由update_time更新
+            text="",
             fg="white",
             bg="#1e3a8a",
-            font=("Consolas", 18, "bold")  # 等宽字体，粗体
+            font=("Consolas", 18, "bold")
         )
-        self.time_label.place(relx=0.5, rely=0.20, anchor="center")  # 居中，位于窗口20%高度
+        self.time_label.place(relx=0.5, rely=0.20, anchor="center")
         
-        # ===== 日期显示 =====
+        # ===== Date Display =====
         self.date_label = tk.Label(
             self.root,
             text="",
-            fg="#bfdbfe",  # 浅蓝色
+            fg="#bfdbfe",
             bg="#1e3a8a",
             font=("Microsoft YaHei", 9)
         )
-        self.date_label.place(relx=0.5, rely=0.38, anchor="center")  # 居中，位于窗口38%高度
+        self.date_label.place(relx=0.5, rely=0.38, anchor="center")
         
-        # ===== 任务显示区域 =====
+        # ===== Task Display Area =====
         self.task_label = tk.Label(
             self.root,
             text="",
             bg="#1e3a8a",
             font=("Microsoft YaHei", 12, "bold"),
-            justify="center"  # 文字居中
+            justify="center"
         )
-        self.task_label.place(relx=0.5, rely=0.65, anchor="center")  # 居中，位于窗口65%高度
-        self.task_label.config(wraplength=290)  # 文字宽度超过290px时自动换行
+        self.task_label.place(relx=0.5, rely=0.65, anchor="center")
+        self.task_label.config(wraplength=290)
 
     def refresh_schedule(self, event=None):
-        """刷新按钮点击处理 - 重新加载计划"""
-        if self.refreshing:  # 如果正在刷新，直接返回防止重复
+        """Handle refresh button click"""
+        if self.refreshing:
             return
         
-        self.refreshing = True  # 标记开始刷新
+        self.refreshing = True
         
-        # ===== 取消所有正在运行的定时器 =====
         if self.carousel_after_id:
-            self.root.after_cancel(self.carousel_after_id)  # 取消轮播
+            self.root.after_cancel(self.carousel_after_id)
             self.carousel_after_id = None
         if self.check_after_id:
-            self.root.after_cancel(self.check_after_id)  # 取消任务检查
+            self.root.after_cancel(self.check_after_id)
             self.check_after_id = None
         
-        # ===== 重置状态 =====
-        self.reset_carousel()  # 重置轮播
+        self.reset_carousel()
         self.carousel_running = False
-        
-        # ===== 重新加载数据 =====
-        self.load_schedule()  # 从文件加载新计划
-        
-        # ===== 立即显示第一个任务 =====
+        self.load_schedule()
         self.update_display_after_refresh()
         
-        # ===== 如果窗口在隐身模式，唤醒 =====
         if self.is_hidden:
             self.wake_up()
         
-        # ===== 发送通知 =====
         self.show_toast("Schedule Refreshed", "Latest schedule loaded")
-        
-        # ===== 延迟重启任务检查 =====
-        # 延迟3秒后重启，避免刷新后立即触发任务切换
         self.root.after(3000, self.restart_after_refresh)
 
     def update_display_after_refresh(self):
-        """刷新后立即更新显示（不触发任何切换逻辑）"""
+        """Update display immediately after refresh"""
         now = datetime.now()
-        current_time_str = now.strftime("%H:%M")  # 格式化为"HH:MM"
+        current_time_str = now.strftime("%H:%M")
         
-        # 如果任务队列为空，显示"已完成"
         if not self.task_queue:
             self.task_label.config(text="Today's plan completed", fg="#c4b5fd")
             self.refreshing = False
             return
         
-        # 获取第一个任务
         t1, p1 = self.task_queue[0]
-        is_task1_started = t1 <= current_time_str  # 检查任务是否已开始
+        is_task1_started = t1 <= current_time_str
         
-        # 如果任务还没开始，显示"即将进行"
         if not is_task1_started:
             self.task_label.config(text=f"Upcoming: {t1} {p1}", fg="#93c5fd")
             self.refreshing = False
             return
         
-        # 任务已开始，显示第一个任务（紫色）
-        self.update_display_list()  # 生成显示列表
+        self.update_display_list()
         if self.display_list:
             self.task_label.config(text=self.display_list[0], fg="#c4b5fd")
-            self.carousel_index = 0  # 重置索引
+            self.carousel_index = 0
 
     def restart_after_refresh(self):
-        """刷新完成后重启任务检查"""
-        self.refreshing = False  # 标记刷新结束
-        self.carousel_running = False  # 重置轮播状态
-        self.start_check_task_status()  # 重新开始任务检查
+        """Restart task checking after refresh completes"""
+        self.refreshing = False
+        self.carousel_running = False
+        self.start_check_task_status()
 
     def go_to_sleep(self, event=None):
-        """点击🌙进入隐身模式 - 窗口完全透明"""
-        self.root.attributes("-alpha", self.hidden_alpha)  # 设置透明度为0
-        self.is_hidden = True  # 标记为隐身
-        self.sleep_btn.config(fg="#64748b", text="🌙")  # 按钮颜色变灰
+        """Enter stealth mode"""
+        self.root.attributes("-alpha", self.hidden_alpha)
+        self.is_hidden = True
+        self.sleep_btn.config(fg="#64748b", text="🌙")
 
     def wake_up(self):
-        """唤醒窗口 - 从隐身模式恢复"""
-        if self.is_hidden:  # 如果当前是隐身状态
-            self.root.attributes("-alpha", self.normal_alpha)  # 恢复透明度
-            self.is_hidden = False  # 取消隐身标记
-            self.sleep_btn.config(fg="white", text="🌙")  # 按钮恢复白色
+        """Wake up the window"""
+        if self.is_hidden:
+            self.root.attributes("-alpha", self.normal_alpha)
+            self.is_hidden = False
+            self.sleep_btn.config(fg="white", text="🌙")
 
     def show_toast(self, title, body):
-        """发送系统通知（Windows右下角弹窗）"""
+        """Send system notification"""
         try:
             notification.notify(
-                title=title,  # 通知标题
-                message=body,  # 通知内容
-                app_name='Plan Manager',  # 应用名称
-                timeout=5  # 显示时长（秒）
+                title=title,
+                message=body,
+                app_name='Plan Manager',
+                timeout=5
             )
-        except Exception:  # 如果发送失败，静默忽略
+        except Exception:
             pass
 
     def update_time(self):
-        """每秒更新一次时间和日期显示"""
-        current_time = time.strftime("%H:%M:%S")  # 格式化为"HH:MM:SS"
-        self.time_label.config(text=current_time)  # 更新时间显示
+        """Update time and date every second"""
+        current_time = time.strftime("%H:%M:%S")
+        self.time_label.config(text=current_time)
         
-        # ===== 更新日期 =====
         weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         now = datetime.now()
-        date_str = now.strftime("%Y-%m-%d")  # 格式化为"YYYY-MM-DD"
-        weekday_str = weekdays[now.weekday()]  # 获取星期几的英文名
-        self.date_label.config(text=f"{date_str} {weekday_str}")  # 更新日期显示
+        date_str = now.strftime("%Y-%m-%d")
+        weekday_str = weekdays[now.weekday()]
+        self.date_label.config(text=f"{date_str} {weekday_str}")
         
-        # 每秒调用一次自己，实现持续更新
         self.root.after(1000, self.update_time)
 
     def start_check_task_status(self):
-        """启动任务状态检查循环"""
-        if self.check_after_id:  # 如果有旧的定时器，取消
+        """Start task status check loop"""
+        if self.check_after_id:
             self.root.after_cancel(self.check_after_id)
-        self.check_task_status()  # 开始第一次检查
+        self.check_task_status()
 
     def check_task_status(self):
-        """检查任务状态（每秒执行一次）"""
+        """Check task status (executed every second)"""
         now = datetime.now()
-        current_time_str = now.strftime("%H:%M")  # 当前时间（HH:MM格式）
+        current_time_str = now.strftime("%H:%M")
         
-        # ===== 如果正在刷新，跳过检查 =====
         if self.refreshing:
             self.check_after_id = self.root.after(1000, self.check_task_status)
             return
         
-        # ===== 如果任务队列为空，显示"已完成" =====
         if not self.task_queue:
             self.task_label.config(text="Today's plan completed", fg="#c4b5fd")
             self.carousel_running = False
             self.check_after_id = self.root.after(1000, self.check_task_status)
             return
 
-        # ===== 检查是否有任务需要结束 =====
-        # 规则：如果队列中至少有2个任务，且第二个任务已经到时间
-        # 说明第一个任务应该结束了
-        task_switched = False  # 标记是否有任务切换
+        task_switched = False
         while len(self.task_queue) >= 2 and self.task_queue[1][0] <= current_time_str:
-            # 弹出第一个任务（它已经结束了）
             ended_task = self.task_queue.pop(0)
             self.last_popped_task = ended_task
             task_switched = True
             
-            # 如果队列还有任务，发送切换通知
             if self.task_queue:
-                current_plan = self.task_queue[0]  # 新的第一个任务
+                current_plan = self.task_queue[0]
                 title = "Task Switch Notification"
                 body = f"{ended_task[0]} {ended_task[1]} ended\nNow starting: {current_plan[0]} {current_plan[1]}"
                 
-                self.wake_up()  # 如果窗口在隐身模式，唤醒
-                
-                # 防止通知刷屏：至少间隔2秒
+                self.wake_up()
                 if time.time() - self._last_popup_time > 2:
                     self.show_toast(title, body)
                     self._last_popup_time = time.time()
             
-            # 如果队列为空，退出循环
             if not self.task_queue:
                 break
 
-        # ===== 如果任务切换了，重置轮播 =====
         if task_switched:
-            self.reset_carousel()  # 停止当前轮播
-            self.update_display_list()  # 更新显示列表
+            self.reset_carousel()
+            self.update_display_list()
             self.carousel_index = 0
-            # 立即显示第一个任务（紫色高亮）
             if self.display_list:
                 self.task_label.config(text=self.display_list[0], fg="#c4b5fd")
         
-        # ===== 如果队列为空，显示"已完成" =====
         if not self.task_queue:
             self.task_label.config(text="Today's plan completed", fg="#c4b5fd")
             self.carousel_running = False
             self.check_after_id = self.root.after(1000, self.check_task_status)
             return
 
-        # ===== 检查第一个任务是否已开始 =====
         t1, p1 = self.task_queue[0]
         is_task1_started = t1 <= current_time_str
 
-        # 如果任务还没开始，显示"即将进行"
         if not is_task1_started:
             self.task_label.config(text=f"Upcoming: {t1} {p1}", fg="#93c5fd")
             self.carousel_running = False
             self.check_after_id = self.root.after(1000, self.check_task_status)
             return
 
-        # ===== 更新显示列表 =====
         if not self.display_list or task_switched:
             self.update_display_list()
             self.carousel_index = 0
         
-        # ===== 如果轮播未开始，启动它 =====
         if not self.carousel_running and self.display_list:
             self.carousel_running = True
-            # 延迟1秒后启动轮播，让用户先看到第一个任务
             self.carousel_after_id = self.root.after(1000, self.start_carousel)
         
-        # ===== 继续下一次检查（1秒后） =====
         self.check_after_id = self.root.after(1000, self.check_task_status)
 
     def update_display_list(self):
-        """生成轮播显示列表 - 包含当前任务和接下来的两个任务"""
-        self.display_list = []  # 清空列表
-        if not self.task_queue:  # 如果没有任务，直接返回
+        """Generate carousel display list"""
+        self.display_list = []
+        if not self.task_queue:
             return
         
-        # 添加第一个任务（当前任务）
         t1, p1 = self.task_queue[0]
-        self.display_list.append(f"{t1} {p1}")  # 格式："时间 任务名"
+        self.display_list.append(f"{t1} {p1}")
         
-        # 添加第二个任务（如果有）
         if len(self.task_queue) >= 2:
             t2, p2 = self.task_queue[1]
             self.display_list.append(f"{t2} {p2}")
         
-        # 添加第三个任务（如果有）
         if len(self.task_queue) >= 3:
             t3, p3 = self.task_queue[2]
             self.display_list.append(f"{t3} {p3}")
 
     def start_carousel(self):
-        """启动轮播 - 每2.5秒切换一次显示"""
-        # 如果轮播已停止、没有显示内容、或正在刷新，停止轮播
+        """Start carousel"""
         if not self.carousel_running or not self.display_list or self.refreshing:
             self.carousel_running = False
             return
         
-        # 切换到下一个任务（循环索引）
         self.carousel_index = (self.carousel_index + 1) % len(self.display_list)
         current_text = self.display_list[self.carousel_index]
         
-        # 根据索引设置颜色：第一个任务用紫色，其他用浅蓝色
         if self.carousel_index == 0:
-            self.task_label.config(text=current_text, fg="#c4b5fd")  # 紫色
+            self.task_label.config(text=current_text, fg="#c4b5fd")
         else:
-            self.task_label.config(text=current_text, fg="#bfdbfe")  # 浅蓝色
+            self.task_label.config(text=current_text, fg="#bfdbfe")
         
-        # 2.5秒后再次调用自己，实现循环轮播
         self.carousel_after_id = self.root.after(2500, self.start_carousel)
 
     def setup_dragging(self):
-        """设置窗口拖拽功能 - 用户可以通过拖拽窗口移动位置"""
-        
+        """Set up window dragging functionality"""
         def start_move(event):
-            """鼠标按下时，记录当前鼠标位置"""
-            self.drag_data["x"] = event.x  # 记录鼠标在窗口内的X坐标
-            self.drag_data["y"] = event.y  # 记录鼠标在窗口内的Y坐标
+            self.drag_data["x"] = event.x
+            self.drag_data["y"] = event.y
 
         def on_move(event):
-            """鼠标拖拽时，移动窗口"""
-            # 计算鼠标移动的距离
             dx = event.x - self.drag_data["x"]
             dy = event.y - self.drag_data["y"]
             
-            # 计算窗口新位置
             new_x = self.root.winfo_x() + dx
             new_y = self.root.winfo_y() + dy
             
-            # 限制窗口不超出屏幕边界
             new_x = max(-self.width + 10, min(new_x, self.root.winfo_screenwidth() - 10))
             new_y = max(-self.height + 10, min(new_y, self.root.winfo_screenheight() - 10))
             
-            # 移动窗口到新位置
             self.root.geometry(f"+{new_x}+{new_y}")
 
-        # 绑定鼠标事件
-        self.root.bind("<ButtonPress-1>", start_move)  # 鼠标左键按下
-        self.root.bind("<B1-Motion>", on_move)  # 鼠标左键拖拽
+        self.root.bind("<ButtonPress-1>", start_move)
+        self.root.bind("<B1-Motion>", on_move)
 
     def setup_alpha_switch(self):
-        """设置鼠标悬停透明度切换 - 悬停时变亮，移出时变暗"""
-        self.root.bind("<Enter>", self.on_mouse_enter)  # 鼠标进入窗口
-        self.root.bind("<Leave>", self.on_mouse_leave)  # 鼠标离开窗口
+        """Set up mouse hover transparency switch"""
+        self.root.bind("<Enter>", self.on_mouse_enter)
+        self.root.bind("<Leave>", self.on_mouse_leave)
 
     def on_mouse_enter(self, event):
-        """鼠标进入窗口时，恢复完全不透明"""
-        if not self.is_hidden:  # 如果不在隐身模式
-            self.root.attributes("-alpha", self.normal_alpha)  # 设置为正常透明度
+        """Mouse enters window"""
+        if not self.is_hidden:
+            self.root.attributes("-alpha", self.normal_alpha)
 
     def on_mouse_leave(self, event):
-        """鼠标离开窗口时，变为半透明"""
-        if not self.is_hidden:  # 如果不在隐身模式
-            self.root.attributes("-alpha", self.idle_alpha)  # 设置为空闲透明度
+        """Mouse leaves window"""
+        if not self.is_hidden:
+            self.root.attributes("-alpha", self.idle_alpha)
+
+    # ============ Update Related Methods ============
+    def check_for_updates(self, event=None):
+        """Check GitHub Releases for updates"""
+        if self.update_in_progress:
+            return
+        
+        threading.Thread(target=self._check_updates_thread, daemon=True).start()
+
+    def _check_updates_thread(self):
+        """Background thread to check for updates"""
+        try:
+            self.root.after(0, lambda: self.update_btn.config(text="⏳"))
+            
+            req = urllib.request.Request(
+                GITHUB_API_URL,
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                if response.status != 200:
+                    raise Exception(f"HTTP {response.status}")
+                data = json.loads(response.read().decode('utf-8'))
+            
+            latest_tag = data.get("tag_name", "").lstrip("v")
+            if not latest_tag:
+                raise Exception("Unable to get version number")
+            
+            latest_major_minor = ".".join(latest_tag.split(".")[:2])
+            current_major_minor = ".".join(self.current_version.split(".")[:2])
+            
+            download_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/download/{data.get('tag_name', '')}/{EXE_NAME}"
+            
+            if latest_major_minor <= current_major_minor:
+                self.root.after(0, lambda: self._show_update_result("Already Latest", f"Current version v{self.current_version} is already up to date"))
+                return
+            
+            self.root.after(0, lambda: self._prompt_update(latest_tag, download_url))
+            
+        except urllib.error.URLError as e:
+            self.root.after(0, lambda: self._show_update_result("Network Error", f"Connection failed: {str(e)}"))
+        except json.JSONDecodeError as e:
+            self.root.after(0, lambda: self._show_update_result("Data Error", f"Failed to parse response: {str(e)}"))
+        except Exception as e:
+            self.root.after(0, lambda: self._show_update_result("Error", f"Failed to check for updates: {str(e)}"))
+
+    def _prompt_update(self, version, download_url):
+        """Ask user whether to download the update"""
+        result = messagebox.askyesno(
+            "New Version Found",
+            f"New version v{version} found\n\nCurrent version: v{self.current_version}\n\nDo you want to download and install the update?",
+            icon=messagebox.QUESTION
+        )
+        if result:
+            threading.Thread(target=self._download_and_run, args=(download_url,), daemon=True).start()
+        else:
+            self.root.after(0, lambda: self.update_btn.config(text="🆕"))
+
+    def _download_and_run(self, download_url):
+        """Download setup.exe and run it (using acceleration sites)"""
+        if self.update_in_progress:
+            return
+        
+        self.update_in_progress = True
+        
+        try:
+            self.root.after(0, lambda: self.update_btn.config(text="⬇️"))
+            
+            temp_dir = tempfile.mkdtemp()
+            exe_path = os.path.join(temp_dir, EXE_NAME)
+            
+            # Download using acceleration sites
+            self.root.after(0, lambda: self._update_status_label("Downloading using acceleration sites..."))
+            success, used_url = self._download_with_accelerator(download_url, exe_path, timeout=120)
+            
+            if not success:
+                raise Exception("All download sources failed, please check your network connection")
+            
+            if not os.path.exists(exe_path) or os.path.getsize(exe_path) == 0:
+                raise Exception("Downloaded file is invalid or empty")
+            
+            self.root.after(0, lambda: self.update_btn.config(text="✅"))
+            self.root.after(0, lambda: self._launch_and_exit(exe_path))
+            
+        except Exception as e:
+            self.update_in_progress = False
+            self.root.after(0, lambda: messagebox.showerror("Update Failed", f"Download failed: {str(e)}"))
+            self.root.after(0, lambda: self.update_btn.config(text="🆕"))
+
+    def _update_status_label(self, message):
+        """Update status display (for showing download progress)"""
+        # Can update task_label here to show download status
+        self.task_label.config(text=message, fg="#93c5fd")
+
+    def _launch_and_exit(self, installer_path):
+        """Launch the installer and exit immediately"""
+        try:
+            os.startfile(installer_path)
+            self._exit_app()
+        except Exception as e:
+            messagebox.showerror("Launch Failed", f"Unable to launch installer: {str(e)}")
+            self.update_in_progress = False
+            self.update_btn.config(text="🆕")
+
+    def _exit_app(self):
+        """Exit the application"""
+        self.root.quit()
+        self.root.destroy()
+        sys.exit(0)
+
+    def _show_update_result(self, title, message):
+        """Show update check result"""
+        self.update_btn.config(text="🆕")
+        if "Failed" in title or "Error" in title:
+            self.update_btn.config(text="❌")
+            messagebox.showwarning(title, message)
+        else:
+            self.update_btn.config(text="✅")
+            messagebox.showinfo(title, message)
+        self.root.after(2000, lambda: self.update_btn.config(text="🆕"))
 
     def run(self):
-        """启动主循环 - 显示窗口并开始事件处理"""
-        self.root.mainloop()  # tkinter的主事件循环
+        """Start the main loop"""
+        self.root.mainloop()
 
-# ===== 程序入口 =====
 if __name__ == "__main__":
-    app = FloatingWindow()  # 创建窗口实例
-    app.run()  # 启动程序
+    app = FloatingWindow()
+    app.run()
