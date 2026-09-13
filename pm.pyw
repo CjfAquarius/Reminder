@@ -14,14 +14,14 @@ import threading
 from tkinter import messagebox, ttk
 
 DATA_FILE = "scheduler.dat"
-VERSION_FILE = "version.txt"  # Version information file
-# Update related constants
+VERSION_FILE = "version.txt"  # 版本信息文件
+# 更新相关常量
 REPO_OWNER = "CjfAquarius"
 REPO_NAME = "Reminder"
 GITHUB_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 EXE_NAME = "setup.exe"
 
-# GitHub acceleration site list (sorted by priority)
+# GitHub 加速站列表（按优先级排序）
 ACCELERATORS = [
     "https://ghproxy.net",
     "https://github.moeyy.xyz",
@@ -34,28 +34,28 @@ class FloatingWindow:
     def __init__(self):
         self.root = tk.Tk()
         
-        # ============ Window Size Settings ============
+        # ============ 窗口尺寸设置 ============
         self.width = 310
         self.height = 194
         
-        # ============ Window Style Settings ============
+        # ============ 窗口样式设置 ============
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         
-        # ============ Transparency Settings ============
+        # ============ 透明度设置 ============
         self.normal_alpha = 0.85
-        self.idle_alpha = 0.3
+        self.idle_alpha = 0.5
         self.hidden_alpha = 0.0
         self.root.attributes("-alpha", self.normal_alpha)
         
-        # ============ Window Position Settings ============
+        # ============ 窗口位置设置 ============
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         x = screen_width - self.width - 50
         y = screen_height - self.height - 100
         self.root.geometry(f"{self.width}x{self.height}+{x}+{y}")
         
-        # ============ Data Storage ============
+        # ============ 数据存储 ============
         self.root.configure(bg="#1e3a8a")
         self.schedule_data = [[], [], [], [], [], [], []]
         self.task_queue = []
@@ -64,7 +64,7 @@ class FloatingWindow:
         self.is_hidden = False
         self.drag_data = {"x": 0, "y": 0}
         
-        # ============ Timer Management ============
+        # ============ 计时器管理 ============
         self._last_popup_time = 0
         self.display_list = []
         self.carousel_running = False
@@ -72,22 +72,22 @@ class FloatingWindow:
         self.check_after_id = None
         self.refreshing = False
         
-        # ============ Update Related ============
+        # ============ 更新相关 ============
         self.update_in_progress = False
-        self.current_version = self._read_version()  # Read version from version.txt
+        self.current_version = self._read_version()  # 从version.txt读取版本
 
-        # ============ Initialize Interface ============
+        # ============ 初始化界面 ============
         self.add_content()
         self.setup_dragging()
         self.setup_alpha_switch()
         
-        # ============ Load Data and Start ============
+        # ============ 加载数据并启动 ============
         self.load_schedule()
         self.update_time()
         self.start_check_task_status()
 
     def _read_version(self):
-        """Read version number from version.txt, return default version if file doesn't exist"""
+        """从version.txt读取版本号，如果文件不存在则返回默认版本"""
         try:
             if os.path.exists(VERSION_FILE):
                 with open(VERSION_FILE, 'r', encoding='utf-8') as f:
@@ -96,40 +96,40 @@ class FloatingWindow:
                         return version
         except Exception:
             pass
-        return "1.0.0"  # Default version
+        return "1.0.0"  # 默认版本
 
     def _get_accelerated_url(self, original_url):
-        """Convert GitHub download link to acceleration site link"""
+        """将GitHub下载链接转换为加速站链接"""
         for accelerator in ACCELERATORS:
-            # Try different acceleration site formats
-            # Format 1: https://acceleration-site/https://github.com/...
+            # 尝试不同的加速站格式
+            # 格式1: https://加速站/https://github.com/...
             url1 = f"{accelerator}/{original_url}"
-            # Format 2: https://acceleration-site/github.com/... (some sites don't need https:// prefix)
+            # 格式2: https://加速站/github.com/... (部分加速站不需要https://前缀)
             if original_url.startswith("https://"):
                 url2 = f"{accelerator}/{original_url[8:]}"
             else:
                 url2 = f"{accelerator}/{original_url}"
             
-            # Return the first available acceleration site (simply returns here, will attempt connection in actual use)
-            # Prefer format 1
+            # 返回第一个可用的加速站（这里简单返回，实际使用时会尝试连接）
+            # 优先使用格式1
             return url1
         
-        return original_url  # Use original link if no acceleration site is available
+        return original_url  # 如果没有加速站可用，使用原链接
 
     def _download_with_accelerator(self, download_url, exe_path, timeout=60):
-        """Download file using acceleration site, try next site if failed"""
-        # Get the filename part of the original URL
+        """使用加速站下载文件，如果失败则尝试下一个加速站"""
+        # 获取原始URL的文件名部分
         file_name = download_url.split('/')[-1]
         
-        # Build acceleration site URL list
+        # 构建加速站URL列表
         accelerated_urls = []
         for accelerator in ACCELERATORS:
-            # Try different formats
+            # 尝试不同的格式
             accelerated_urls.append(f"{accelerator}/{download_url}")
             if download_url.startswith("https://"):
                 accelerated_urls.append(f"{accelerator}/{download_url[8:]}")
         
-        # Try each acceleration site in order
+        # 依次尝试每个加速站
         for url in accelerated_urls:
             try:
                 req = urllib.request.Request(
@@ -142,16 +142,16 @@ class FloatingWindow:
                     }
                 )
                 with urllib.request.urlopen(req, timeout=timeout) as response:
-                    # Check response status
+                    # 检查响应状态
                     if response.status == 200:
                         with open(exe_path, 'wb') as f:
                             f.write(response.read())
-                        return True, url  # Download successful
+                        return True, url  # 下载成功
             except Exception as e:
-                # Current acceleration site failed, try next one
+                # 当前加速站失败，尝试下一个
                 continue
         
-        # All acceleration sites failed, try downloading from original URL directly
+        # 所有加速站都失败，尝试直接下载原始URL
         try:
             req = urllib.request.Request(
                 download_url,
@@ -168,7 +168,7 @@ class FloatingWindow:
         return False, None
 
     def load_schedule(self):
-        """Load schedule data from file and reset today's task queue"""
+        """从文件加载计划数据，并重置今天的任务队列"""
         try:
             with open(DATA_FILE, "rb") as f:
                 self.schedule_data = pickle.load(f)
@@ -179,7 +179,7 @@ class FloatingWindow:
         self.reset_carousel()
 
     def reset_carousel(self):
-        """Reset carousel state"""
+        """重置轮播状态"""
         if self.carousel_after_id:
             self.root.after_cancel(self.carousel_after_id)
             self.carousel_after_id = None
@@ -189,7 +189,7 @@ class FloatingWindow:
         self.display_list = []
 
     def reset_today_queue(self):
-        """Reset today's task queue"""
+        """重置今天的任务队列"""
         now = datetime.now()
         current_weekday = now.weekday()
         today_plans = self.schedule_data[current_weekday]
@@ -197,8 +197,8 @@ class FloatingWindow:
         self.last_popped_task = None
 
     def add_content(self):
-        """Add all UI components to the window"""
-        # ===== Top-left Title =====
+        """添加所有UI组件到窗口"""
+        # ===== 左上角标题 =====
         self.title_label = tk.Label(
             self.root,
             text="Plan Manager",
@@ -208,7 +208,7 @@ class FloatingWindow:
         )
         self.title_label.place(x=12, y=8)
         
-        # ===== Sleep Button (🌙) =====
+        # ===== 休眠按钮（🌙） =====
         self.sleep_btn = tk.Label(
             self.root,
             text="🌙",
@@ -220,7 +220,7 @@ class FloatingWindow:
         self.sleep_btn.place(x=self.width-32, y=6, width=22, height=22)
         self.sleep_btn.bind("<Button-1>", self.go_to_sleep)
         
-        # ===== Refresh Button (🔄) =====
+        # ===== 刷新按钮（🔄） =====
         self.refresh_btn = tk.Label(
             self.root,
             text="🔄",
@@ -232,7 +232,7 @@ class FloatingWindow:
         self.refresh_btn.place(x=self.width-58, y=7, width=20, height=20)
         self.refresh_btn.bind("<Button-1>", self.refresh_schedule)
         
-        # ===== Update Button (🆕) =====
+        # ===== 更新按钮（🆕） =====
         self.update_btn = tk.Label(
             self.root,
             text="🆕",
@@ -244,7 +244,7 @@ class FloatingWindow:
         self.update_btn.place(x=self.width-84, y=7, width=20, height=20)
         self.update_btn.bind("<Button-1>", self.check_for_updates)
         
-        # ===== Time Display =====
+        # ===== 时间显示 =====
         self.time_label = tk.Label(
             self.root,
             text="",
@@ -254,7 +254,7 @@ class FloatingWindow:
         )
         self.time_label.place(relx=0.5, rely=0.20, anchor="center")
         
-        # ===== Date Display =====
+        # ===== 日期显示 =====
         self.date_label = tk.Label(
             self.root,
             text="",
@@ -264,7 +264,7 @@ class FloatingWindow:
         )
         self.date_label.place(relx=0.5, rely=0.38, anchor="center")
         
-        # ===== Task Display Area =====
+        # ===== 任务显示区域 =====
         self.task_label = tk.Label(
             self.root,
             text="",
@@ -276,7 +276,7 @@ class FloatingWindow:
         self.task_label.config(wraplength=290)
 
     def refresh_schedule(self, event=None):
-        """Handle refresh button click"""
+        """刷新按钮点击处理"""
         if self.refreshing:
             return
         
@@ -301,7 +301,7 @@ class FloatingWindow:
         self.root.after(3000, self.restart_after_refresh)
 
     def update_display_after_refresh(self):
-        """Update display immediately after refresh"""
+        """刷新后立即更新显示"""
         now = datetime.now()
         current_time_str = now.strftime("%H:%M")
         
@@ -324,26 +324,26 @@ class FloatingWindow:
             self.carousel_index = 0
 
     def restart_after_refresh(self):
-        """Restart task checking after refresh completes"""
+        """刷新完成后重启任务检查"""
         self.refreshing = False
         self.carousel_running = False
         self.start_check_task_status()
 
     def go_to_sleep(self, event=None):
-        """Enter stealth mode"""
+        """进入隐身模式"""
         self.root.attributes("-alpha", self.hidden_alpha)
         self.is_hidden = True
         self.sleep_btn.config(fg="#64748b", text="🌙")
 
     def wake_up(self):
-        """Wake up the window"""
+        """唤醒窗口"""
         if self.is_hidden:
             self.root.attributes("-alpha", self.normal_alpha)
             self.is_hidden = False
             self.sleep_btn.config(fg="white", text="🌙")
 
     def show_toast(self, title, body):
-        """Send system notification"""
+        """发送系统通知"""
         try:
             notification.notify(
                 title=title,
@@ -355,7 +355,7 @@ class FloatingWindow:
             pass
 
     def update_time(self):
-        """Update time and date every second"""
+        """每秒更新时间和日期"""
         current_time = time.strftime("%H:%M:%S")
         self.time_label.config(text=current_time)
         
@@ -368,13 +368,13 @@ class FloatingWindow:
         self.root.after(1000, self.update_time)
 
     def start_check_task_status(self):
-        """Start task status check loop"""
+        """启动任务状态检查循环"""
         if self.check_after_id:
             self.root.after_cancel(self.check_after_id)
         self.check_task_status()
 
     def check_task_status(self):
-        """Check task status (executed every second)"""
+        """检查任务状态（每秒执行）"""
         now = datetime.now()
         current_time_str = now.strftime("%H:%M")
         
@@ -440,7 +440,7 @@ class FloatingWindow:
         self.check_after_id = self.root.after(1000, self.check_task_status)
 
     def update_display_list(self):
-        """Generate carousel display list"""
+        """生成轮播显示列表"""
         self.display_list = []
         if not self.task_queue:
             return
@@ -457,7 +457,7 @@ class FloatingWindow:
             self.display_list.append(f"{t3} {p3}")
 
     def start_carousel(self):
-        """Start carousel"""
+        """启动轮播"""
         if not self.carousel_running or not self.display_list or self.refreshing:
             self.carousel_running = False
             return
@@ -473,7 +473,7 @@ class FloatingWindow:
         self.carousel_after_id = self.root.after(2500, self.start_carousel)
 
     def setup_dragging(self):
-        """Set up window dragging functionality"""
+        """设置窗口拖拽功能"""
         def start_move(event):
             self.drag_data["x"] = event.x
             self.drag_data["y"] = event.y
@@ -494,30 +494,30 @@ class FloatingWindow:
         self.root.bind("<B1-Motion>", on_move)
 
     def setup_alpha_switch(self):
-        """Set up mouse hover transparency switch"""
+        """设置鼠标悬停透明度切换"""
         self.root.bind("<Enter>", self.on_mouse_enter)
         self.root.bind("<Leave>", self.on_mouse_leave)
 
     def on_mouse_enter(self, event):
-        """Mouse enters window"""
+        """鼠标进入窗口"""
         if not self.is_hidden:
             self.root.attributes("-alpha", self.normal_alpha)
 
     def on_mouse_leave(self, event):
-        """Mouse leaves window"""
+        """鼠标离开窗口"""
         if not self.is_hidden:
             self.root.attributes("-alpha", self.idle_alpha)
 
-    # ============ Update Related Methods ============
+    # ============ 更新相关方法 ============
     def check_for_updates(self, event=None):
-        """Check GitHub Releases for updates"""
+        """检查GitHub Releases是否有更新"""
         if self.update_in_progress:
             return
         
         threading.Thread(target=self._check_updates_thread, daemon=True).start()
 
     def _check_updates_thread(self):
-        """Background thread to check for updates"""
+        """后台线程检查更新"""
         try:
             self.root.after(0, lambda: self.update_btn.config(text="⏳"))
             
@@ -532,7 +532,7 @@ class FloatingWindow:
             
             latest_tag = data.get("tag_name", "").lstrip("v")
             if not latest_tag:
-                raise Exception("Unable to get version number")
+                raise Exception("无法获取版本号")
             
             latest_major_minor = ".".join(latest_tag.split(".")[:2])
             current_major_minor = ".".join(self.current_version.split(".")[:2])
@@ -540,23 +540,23 @@ class FloatingWindow:
             download_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/download/{data.get('tag_name', '')}/{EXE_NAME}"
             
             if latest_major_minor <= current_major_minor:
-                self.root.after(0, lambda: self._show_update_result("Already Latest", f"Current version v{self.current_version} is already up to date"))
+                self.root.after(0, lambda: self._show_update_result("已是最新", f"当前版本 v{self.current_version} 已是最新"))
                 return
             
             self.root.after(0, lambda: self._prompt_update(latest_tag, download_url))
             
         except urllib.error.URLError as e:
-            self.root.after(0, lambda: self._show_update_result("Network Error", f"Connection failed: {str(e)}"))
+            self.root.after(0, lambda: self._show_update_result("网络错误", f"连接失败: {str(e)}"))
         except json.JSONDecodeError as e:
-            self.root.after(0, lambda: self._show_update_result("Data Error", f"Failed to parse response: {str(e)}"))
+            self.root.after(0, lambda: self._show_update_result("数据错误", f"解析响应失败: {str(e)}"))
         except Exception as e:
-            self.root.after(0, lambda: self._show_update_result("Error", f"Failed to check for updates: {str(e)}"))
+            self.root.after(0, lambda: self._show_update_result("错误", f"检查更新失败: {str(e)}"))
 
     def _prompt_update(self, version, download_url):
-        """Ask user whether to download the update"""
+        """询问用户是否下载更新"""
         result = messagebox.askyesno(
-            "New Version Found",
-            f"New version v{version} found\n\nCurrent version: v{self.current_version}\n\nDo you want to download and install the update?",
+            "发现新版本",
+            f"发现新版本 v{version}\n\n当前版本: v{self.current_version}\n\n是否下载并安装更新？",
             icon=messagebox.QUESTION
         )
         if result:
@@ -565,7 +565,7 @@ class FloatingWindow:
             self.root.after(0, lambda: self.update_btn.config(text="🆕"))
 
     def _download_and_run(self, download_url):
-        """Download setup.exe and run it (using acceleration sites)"""
+        """下载setup.exe并运行（使用加速站）"""
         if self.update_in_progress:
             return
         
@@ -577,49 +577,49 @@ class FloatingWindow:
             temp_dir = tempfile.mkdtemp()
             exe_path = os.path.join(temp_dir, EXE_NAME)
             
-            # Download using acceleration sites
-            self.root.after(0, lambda: self._update_status_label("Downloading using acceleration sites..."))
+            # 使用加速站下载
+            self.root.after(0, lambda: self._update_status_label("正在使用加速站下载..."))
             success, used_url = self._download_with_accelerator(download_url, exe_path, timeout=120)
             
             if not success:
-                raise Exception("All download sources failed, please check your network connection")
+                raise Exception("所有下载源均失败，请检查网络连接")
             
             if not os.path.exists(exe_path) or os.path.getsize(exe_path) == 0:
-                raise Exception("Downloaded file is invalid or empty")
+                raise Exception("下载的文件无效或为空")
             
             self.root.after(0, lambda: self.update_btn.config(text="✅"))
             self.root.after(0, lambda: self._launch_and_exit(exe_path))
             
         except Exception as e:
             self.update_in_progress = False
-            self.root.after(0, lambda: messagebox.showerror("Update Failed", f"Download failed: {str(e)}"))
+            self.root.after(0, lambda: messagebox.showerror("更新失败", f"下载失败: {str(e)}"))
             self.root.after(0, lambda: self.update_btn.config(text="🆕"))
 
     def _update_status_label(self, message):
-        """Update status display (for showing download progress)"""
-        # Can update task_label here to show download status
+        """更新状态显示（用于显示下载进度）"""
+        # 可以在这里更新task_label显示下载状态
         self.task_label.config(text=message, fg="#93c5fd")
 
     def _launch_and_exit(self, installer_path):
-        """Launch the installer and exit immediately"""
+        """启动安装程序并立即退出"""
         try:
             os.startfile(installer_path)
             self._exit_app()
         except Exception as e:
-            messagebox.showerror("Launch Failed", f"Unable to launch installer: {str(e)}")
+            messagebox.showerror("启动失败", f"无法启动安装程序: {str(e)}")
             self.update_in_progress = False
             self.update_btn.config(text="🆕")
 
     def _exit_app(self):
-        """Exit the application"""
+        """退出应用"""
         self.root.quit()
         self.root.destroy()
         sys.exit(0)
 
     def _show_update_result(self, title, message):
-        """Show update check result"""
+        """显示更新检查结果"""
         self.update_btn.config(text="🆕")
-        if "Failed" in title or "Error" in title:
+        if "失败" in title or "错误" in title:
             self.update_btn.config(text="❌")
             messagebox.showwarning(title, message)
         else:
@@ -628,7 +628,7 @@ class FloatingWindow:
         self.root.after(2000, lambda: self.update_btn.config(text="🆕"))
 
     def run(self):
-        """Start the main loop"""
+        """启动主循环"""
         self.root.mainloop()
 
 if __name__ == "__main__":
