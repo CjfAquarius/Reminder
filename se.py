@@ -119,7 +119,7 @@ class SchedulerCmd(cmd.Cmd):
                     print(f"\n--- Day {i+1} Plans ---")
                     for t, p in self.schedule[i]:
                         print(f"  {t} : {p}")
-	def do_addx(self, arg):
+    def do_addx(self, arg):
         """Add multiple plans to one weekday. Usage: addx weekday
 Then input lines of 'time content'. Press Ctrl+D (EOF) to finish.
 Example:
